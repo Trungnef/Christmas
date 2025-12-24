@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Christmas - Face Control</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* 1. Thay đổi font chữ chung cho toàn bộ body sang Quicksand */
+        body { margin: 0; overflow: hidden; background-color: #000000; font-family: 'Quicksand', sans-serif; }
+        #canvas-container { width: 100%; height: 100vh; display: block; }
+        
+        #ui-layer {
+            position: absolute; bottom: 30px; width: 100%;
+            text-align: center; pointer-events: none; z-index: 100;
+        }
+        
+        .guide { 
+            color: rgba(230, 230, 255, 0.9); 
+            font-size: 16px; /* Tăng nhẹ cỡ chữ */
+            margin-bottom: 20px; 
+            text-shadow: 0 0 10px #8A2BE2;
+            letter-spacing: 1px;
+            /* Không cần chỉnh font ở đây vì nó nhận từ body */
+        }
+
+        /* Tùy chọn: Làm cho các từ khóa nổi bật bằng font viết tay */
+        .guide b {
+             font-family: 'Great Vibes', cursive;
+             font-size: 1.3em;
+             font-weight: normal;
+        }
+
+        button {
+            pointer-events: auto; cursor: pointer;
+            background: linear-gradient(to bottom, #9400D3, #4B0082);
+            color: #FFF; border: 1px solid #E6E6FA;
+            padding: 15px 50px; border-radius: 30px; 
+            font-weight: 700; font-size: 18px; /* Tăng cỡ chữ nút */
+            box-shadow: 0 0 30px rgba(138, 43, 226, 0.6);
+            animation: pulse 2s infinite;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            /* Sử dụng font Quicksand đậm cho nút */
+            font-family: 'Quicksand', sans-serif; 
+        }
+        @keyframes pulse { 0% { box-shadow: 0 0 20px rgba(138, 43, 226, 0.4); } 50% { box-shadow: 0 0 40px rgba(138, 43, 226, 0.8); } 100% { box-shadow: 0 0 20px rgba(138, 43, 226, 0.4); } }
+
+        #camera-preview {
+            position: absolute; top: 15px; right: 15px;
+            width: 120px; height: 90px;
+            border: 1px solid rgba(138, 43, 226, 0.5); 
+            transform: scaleX(-1); opacity: 0.6; border-radius: 8px;
+            box-shadow: 0 0 10px rgba(138, 43, 226, 0.3);
+        }
+        
+        #copyright {
+            position: absolute; bottom: 10px; right: 15px;
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 12px; z-index: 100; font-family: sans-serif;
+            pointer-events: none; font-style: italic;
+        }
+
+        #error-log { display: none; }
+    </style>
+</head>
+<body>
+    <div id="error-log"></div>
+    
+    <div id="ui-layer">
+        <!-- <div class="guide">
+            🖐 <b>Open:</b> Galaxy &nbsp;|&nbsp; 🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✊ <b>Fist:</b> Photo
+        </div> -->
+        <div class="guide">
+            <!-- 🖐 <b>Mở tay:</b> Phân tán &nbsp;|&nbsp; 🫶 <b>Tim:</b> Yêu thương &nbsp;|&nbsp; ✊ <b>Nắm tay:</b> Hội tụ (Reset) -->
+        </div>
+        <button id="btnStart" onclick="startSystem()">Start</button>
+    </div>
+
+    <div id="canvas-container"></div>
+    <video class="input_video" style="display:none"></video>
+    <canvas id="camera-preview"></canvas>
+
+    <script type="x-shader/x-vertex" id="vertexShader">
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+
+    <script type="x-shader/x-fragment" id="fragmentShader">
+        uniform float time;
+        varying vec2 vUv;
+
+        // Noise functions
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+
+        float snoise(vec2 v) {
+            const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+            vec2 i  = floor(v + dot(v, C.yy) );
+            vec2 x0 = v -   i + dot(i, C.xx);
+            vec2 i1;
+            i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+            vec4 x12 = x0.xyxy + C.xxzz;
+            x12.xy -= i1;
+            i = mod289(i);
+            vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+            vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+            m = m*m ;
+            m = m*m ;
+            vec3 x = 2.0 * fract(p * C.www) - 1.0;
+            vec3 h = abs(x) - 0.5;
+            vec3 ox = floor(x + 0.5);
+            vec3 a0 = x - ox;
+            m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+            vec3 g;
+            g.x  = a0.x  * x0.x  + h.x  * x0.y;
+            g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+            return 130.0 * dot(m, g);
+        }
+
+        void main() {
+            vec2 uv = vUv;
+            
+            // --- TẠO GRADIENT NỀN (ĐẬM DƯỚI -> NHẠT TRÊN) ---
+            // Màu đáy: Đen tuyền pha chút xanh mực rất tối
+            vec3 skyBottom = vec3(0.0, 0.0, 0.02); 
+            // Màu đỉnh: Xanh tím than sáng hơn một chút
+            vec3 skyTop = vec3(0.05, 0.15, 0.35); 
+            
+            // Dùng hàm pow để làm màu tối chiếm ưu thế ở dưới, và chuyển màu mượt mà lên trên
+            float gradientFactor = pow(uv.y, 0.7); 
+            vec3 baseColor = mix(skyBottom, skyTop, gradientFactor);
+
+            // --- HIỆU ỨNG CỰC QUANG ---
+            float speed = time * 0.1;
+            float n1 = snoise(vec2(uv.x * 4.0, uv.y * 3.0 - speed));
+            float n2 = snoise(vec2(uv.x * 8.0 + speed, uv.y * 5.0));
+            
+            float aurora = smoothstep(0.4, 0.8, n1 * 0.5 + n2 * 0.5 + uv.y * 0.4);
+            aurora *= smoothstep(0.0, 0.3, uv.y) * smoothstep(1.0, 0.6, uv.y);
+
+            vec3 colorA = vec3(0.0, 1.0, 0.6); // Cyan/Green
+            vec3 colorB = vec3(0.5, 0.0, 1.0); // Purple
+            vec3 auroraColor = mix(colorA, colorB, n2);
+
+            // Hòa trộn nền Gradient + Cực quang
+            vec3 finalColor = baseColor + auroraColor * aurora * 0.5;
+
+            gl_FragColor = vec4(finalColor, 1.0);
+        }
+    </script>
+
+    <script>
+        // ==========================================
+        // 1. RESOURCES CONFIG
+        // ==========================================
+        const MUSIC_URL = "./Christmas.mp3"; 
+        let bgMusic = new Audio(MUSIC_URL);
+        bgMusic.loop = true; bgMusic.volume = 1.0;
+
+        const loader = new THREE.TextureLoader();
+        const photoFiles = ['./image1.jpg', './image2.jpg', './image3.jpg', './image4.jpg', './image5.jpg'];
+        const photoTextures = [];
+        photoFiles.forEach((f, i) => photoTextures[i] = loader.load(f));
+
+        function createCustomTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const cx = 32, cy = 32;
+
+            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30);
+            
+            if (type === 'glow_core') {
+                grd.addColorStop(0, '#FFFFFF'); 
+                grd.addColorStop(0.2, '#E0B0FF'); 
+                grd.addColorStop(1, 'rgba(0,0,0,0)'); 
+            } else if (type === 'sparkle') {
+                grd.addColorStop(0, '#FFFFFF'); 
+                grd.addColorStop(0.3, '#F8F0FF'); 
+                grd.addColorStop(1, 'rgba(0,0,0,0)');
+            } else if (type === 'meteor') { 
+                grd.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
+                grd.addColorStop(0.5, 'rgba(255, 255, 255, 1)'); 
+                grd.addColorStop(0.7, 'rgba(255, 255, 255, 0.5)'); 
+                grd.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            } else if (type === 'star_bg') { 
+                grd.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                grd.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            } else {
+                grd.addColorStop(0, 'rgba(255,255,255,0.6)'); 
+                grd.addColorStop(1, 'rgba(0,0,0,0)');
+            }
+            
+            ctx.fillStyle = grd; ctx.fillRect(0,0,64,64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const textures = {
+            main: createCustomTexture('glow_core'),
+            sub: createCustomTexture('sparkle'),
+            dust: createCustomTexture('dust'),
+            meteor: createCustomTexture('meteor'),
+            star_bg: createCustomTexture('star_bg')
+        };
+
+        // ==========================================
+        // 2. SYSTEM CONFIG
+        // ==========================================
+        const CONFIG = {
+            mainCount: 2500,
+            subCount: 5000,
+            dustCount: 1000,
+            baseDustCount: 4000, 
+            snowCount: 1500, 
+            bgStarCount: 2000, 
+
+            // --- SHOOTING STAR ---
+            shootingStarCount: 4, 
+            shootingStarSpeed: 0.004, 
+            trailLength: 30,
+
+            treeHeight: 75,       
+            treeBaseRadius: 25,   
+            spiralLoops: 4.2,
+            treeYOffset: 15, 
+
+            galaxyCount: 7000,      
+            galaxyRadius: 220,      
+            galaxySpeed: 0.25,       
+            galaxyY: -20,           
+
+            explodeRadius: 65,  
+            photoOrbitRadius: 25,
+        };
+
+        let scene, camera, renderer;
+        let groupMain, groupSub, groupDust, groupGalaxy, groupBaseDust, groupSnow, groupShootingStars, groupBgStars; 
+        let photoMeshes = [];    
+        let titleMesh, starMesh, loveMesh;
+        let auroraMesh, auroraUniforms; 
+        
+        let state = 'TREE'; 
+        let selectedIndex = 0;
+        let handX = 0.5;
+        let shootingStarsFinished = false; 
+        let treeRevealProgress = 0.0; 
+
+        // --- CÁC BIẾN MỚI CHO XOAY ẢNH ---
+        let galleryAngle = 0;       // Góc quay hiện tại của vòng tròn ảnh
+        let galleryVelocity = 0.002; // Tốc độ quay tự động (Rất chậm)
+        let lastHandX = 0.5;        // Vị trí tay cũ để tính hướng vẫy
+
+        // ==========================================
+        // 3. THREE.JS SYSTEM
+        // ==========================================
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            // Sương mù cực nhẹ để không che mất gradient nền
+            scene.fog = new THREE.FogExp2(0x00021A, 0.001); 
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 2000);
+            camera.position.z = 100;
+            camera.position.y = 10;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(0x000000); 
+            container.appendChild(renderer.domElement);
+
+            createAurora();
+            groupBgStars = createBackgroundStars();
+
+            groupMain = createParticleSystem('main', CONFIG.mainCount, 2.0); 
+            groupSub = createParticleSystem('sub', CONFIG.subCount, 1.5);    
+            groupDust = createParticleSystem('dust', CONFIG.dustCount, 0.8);
+            
+            groupBaseDust = createBaseDustSystem();
+            groupGalaxy = createGalaxySystem();
+            groupSnow = createSnowSystem();
+            
+            groupShootingStars = createShootingStarSystem();
+
+            createPhotos();
+            createDecorations();
+            animate();
+        }
+
+        function createAurora() {
+            auroraUniforms = { time: { value: 0 } };
+            const skyGeo = new THREE.SphereGeometry(800, 32, 32);
+            const skyMat = new THREE.ShaderMaterial({
+                uniforms: auroraUniforms,
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                side: THREE.BackSide
+            });
+            auroraMesh = new THREE.Mesh(skyGeo, skyMat);
+            scene.add(auroraMesh);
+        }
+
+        function createBackgroundStars() {
+            const count = CONFIG.bgStarCount;
+            const positions = new Float32Array(count * 3);
+            const sizes = new Float32Array(count);
+            for (let i = 0; i < count; i++) {
+                const r = 500 + Math.random() * 400; 
+                const theta = 2 * Math.PI * Math.random();
+                const phi = Math.acos(2 * Math.random() - 1);
+                positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i*3+2] = r * Math.cos(phi);
+                sizes[i] = 1.0 + Math.random() * 2.0;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            const mat = new THREE.PointsMaterial({
+                size: 1.0, map: textures.star_bg, transparent: true, opacity: 0.8,
+                color: 0xFFFFFF, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+            });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function createShootingStarSystem() {
+            const count = CONFIG.shootingStarCount;
+            const totalParticles = count * CONFIG.trailLength;
+            const positions = new Float32Array(totalParticles * 3);
+            const sizes = new Float32Array(totalParticles);
+            const colors = new Float32Array(totalParticles * 3);
+            const headProgress = []; 
+            for(let i=0; i<count; i++) {
+                positions[i*3] = 0; positions[i*3+1] = -999; positions[i*3+2] = 0; 
+                sizes[i] = 7.0; 
+                headProgress.push(-0.2); 
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geo.userData = { headProgress: headProgress };
+            const mat = new THREE.PointsMaterial({
+                size: 1.0, map: textures.meteor, transparent: true, opacity: 1.0,
+                vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+            });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function updateShootingStarSystem(time) {
+            if (shootingStarsFinished) {
+                groupShootingStars.visible = false;
+                treeRevealProgress = 1.0; 
+                return;
+            }
+            const positions = groupShootingStars.geometry.attributes.position.array;
+            const sizes = groupShootingStars.geometry.attributes.size.array;
+            const colors = groupShootingStars.geometry.attributes.color.array;
+            const headProgress = groupShootingStars.geometry.userData.headProgress;
+            
+            const starCount = CONFIG.shootingStarCount;
+            const trailLen = CONFIG.trailLength;
+            let completedCount = 0;
+            let currentMaxProgress = 0;
+            const headColor = new THREE.Color(0xFFFFFF); 
+            const tailColorEnd = new THREE.Color(0xFFFDD0); 
+
+            for(let s=0; s<starCount; s++) {
+                headProgress[s] += CONFIG.shootingStarSpeed;
+                let hp = headProgress[s];
+                if (hp > currentMaxProgress) currentMaxProgress = hp;
+                if (hp >= 1.0) completedCount++;
+
+                for(let t=0; t<trailLen; t++) {
+                    const particleIndex = s * trailLen + t;
+                    const lag = t * 0.0015; 
+                    let p = hp - lag; 
+                    if (p < 0 || p > 1.0) {
+                        positions[particleIndex*3 + 1] = -9999; 
+                        continue;
+                    }
+                    const h = p * CONFIG.treeHeight;
+                    const y = h - CONFIG.treeHeight / 2 + CONFIG.treeYOffset;
+                    const radius = CONFIG.treeBaseRadius * (1 - p);
+                    const armOffset = s * (Math.PI / 2); 
+                    const densityCurve = Math.pow(p, 0.5); 
+                    const angle = (densityCurve * Math.PI * 2 * CONFIG.spiralLoops) + armOffset;
+                    let x = Math.cos(angle) * radius;
+                    let z = Math.sin(angle) * radius;
+                    const spreadAmount = (t / trailLen) * 3.0;
+                    x += (Math.random() - 0.5) * spreadAmount;
+                    z += (Math.random() - 0.5) * spreadAmount;
+                    const yJitter = y + (Math.random() - 0.5) * spreadAmount;
+                    positions[particleIndex*3] = x;
+                    positions[particleIndex*3+1] = yJitter;
+                    positions[particleIndex*3+2] = z;
+                    sizes[particleIndex] = 7.0 * (1 - (t/trailLen) * 0.8);
+                    const colorRatio = t / trailLen;
+                    const c = headColor.clone().lerp(tailColorEnd, colorRatio);
+                    const brightness = 1.0 - colorRatio; 
+                    c.multiplyScalar(brightness); 
+                    colors[particleIndex*3] = c.r;
+                    colors[particleIndex*3+1] = c.g;
+                    colors[particleIndex*3+2] = c.b;
+                }
+            }
+            groupShootingStars.geometry.attributes.position.needsUpdate = true;
+            groupShootingStars.geometry.attributes.size.needsUpdate = true;
+            groupShootingStars.geometry.attributes.color.needsUpdate = true;
+            groupShootingStars.rotation.y = -time * 0.2;
+            treeRevealProgress = Math.max(0, Math.min(1.0, currentMaxProgress));
+            if (currentMaxProgress > 0.9) { 
+                const fade = (currentMaxProgress - 0.9) / 0.1; 
+                if (starMesh) starMesh.material.opacity = Math.min(1.0, fade);
+            }
+            if (completedCount >= starCount) {
+                shootingStarsFinished = true;
+                if(starMesh) starMesh.material.opacity = 1.0; 
+                treeRevealProgress = 1.0;
+            }
+        }
+
+        function createBaseDustSystem() {
+            const count = CONFIG.baseDustCount;
+            const positions = []; const sizes = []; const colors = []; const phases = [];
+            const bottomHeight = CONFIG.treeHeight / 5; 
+            const startY = -CONFIG.treeHeight / 2 + CONFIG.treeYOffset;
+            const colorBase = new THREE.Color(0xFFFFFF); 
+            const colorTint = new THREE.Color(0xD8BFD8); 
+            for(let i=0; i<count; i++) {
+                const h = Math.random() * bottomHeight;
+                const y = startY + h;
+                const spreadRatio = 1.0 - (h / bottomHeight); 
+                const radius = (CONFIG.treeBaseRadius * 2.0) * Math.sqrt(Math.random()) * (0.6 + 0.4 * spreadRatio);
+                const angle = Math.random() * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                positions.push(x, y, z);
+                sizes.push(0.5 + Math.random() * 0.8);
+                const color = colorBase.clone().lerp(colorTint, Math.random());
+                colors.push(color.r, color.g, color.b);
+                phases.push(Math.random() * Math.PI * 2);
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geo.userData = { phases: phases }; 
+            const mat = new THREE.PointsMaterial({
+                size: 1.0, map: textures.sub, transparent: true, opacity: 0.6,
+                vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+            });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function createGalaxySystem() {
+            const count = CONFIG.galaxyCount;
+            const positions = new Float32Array(count * 3);
+            const colors = new Float32Array(count * 3);
+            const sizes = new Float32Array(count);
+            const initialData = []; 
+            const centerColor = new THREE.Color(0xFFFFFF); 
+            const edgeColor = new THREE.Color(0x050015); 
+            for(let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                let distRatio = Math.pow(Math.random(), 3.0); 
+                const radius = distRatio * CONFIG.galaxyRadius; 
+                const spreadY = 15 * (1 - distRatio) + 1; 
+                const x = Math.cos(angle) * radius;
+                const y = (Math.random() - 0.5) * spreadY + CONFIG.galaxyY;
+                const z = Math.sin(angle) * radius;
+                positions[i*3] = x; positions[i*3+1] = y; positions[i*3+2] = z;
+                initialData.push({ angle, radius, yBase: y, speedOffset: Math.random() });
+                sizes[i] = 2.0; 
+                const color = centerColor.clone().lerp(edgeColor, distRatio * 1.5); 
+                if(distRatio < 0.2) color.lerp(new THREE.Color(0x8A2BE2), 0.3);
+                colors[i*3] = color.r; colors[i*3+1] = color.g; colors[i*3+2] = color.b;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geo.userData = { initialData: initialData };
+            const mat = new THREE.PointsMaterial({
+                size: 2.0, map: textures.sub, transparent: true, opacity: 1.0, 
+                vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+            });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function updateGalaxySystem(time) {
+            const positions = groupGalaxy.geometry.attributes.position.array;
+            const initialData = groupGalaxy.geometry.userData.initialData;
+            const count = positions.length / 3;
+            const baseSpeed = CONFIG.galaxySpeed;
+            for(let i = 0; i < count; i++) {
+                let px = positions[i*3]; let py = positions[i*3+1]; let pz = positions[i*3+2];
+                let data = initialData[i];
+                const distSq = px*px + pz*pz;
+                const currentDist = Math.sqrt(distSq);
+                const moveIn = baseSpeed * (1.0 + data.speedOffset * 0.5);
+                const angle = Math.atan2(pz, px);
+                const newDist = currentDist - moveIn;
+                const rotateSpeed = 0.002 + (15.0 / (newDist + 10)) * 0.02; 
+                const newAngle = angle + rotateSpeed;
+                if (newDist <= 1) {
+                    const resetAngle = Math.random() * Math.PI * 2;
+                    const resetRadius = CONFIG.galaxyRadius * (0.8 + Math.random() * 0.2);
+                    px = Math.cos(resetAngle) * resetRadius; pz = Math.sin(resetAngle) * resetRadius; py = data.yBase;
+                } else {
+                    px = Math.cos(newAngle) * newDist; pz = Math.sin(newAngle) * newDist;
+                }
+                positions[i*3] = px; positions[i*3+1] = py; positions[i*3+2] = pz;
+            }
+            groupGalaxy.geometry.attributes.position.needsUpdate = true;
+            groupGalaxy.rotation.y = -time * 0.027; 
+        }
+
+        function createSnowSystem() {
+            const count = CONFIG.snowCount;
+            const positions = []; const sizes = []; const fallSpeeds = []; const driftOffsets = [];
+            for(let i=0; i<count; i++) {
+                const x = (Math.random() - 0.5) * 200;
+                const y = (Math.random() - 0.5) * 150 + 20;
+                const z = (Math.random() - 0.5) * 200;
+                positions.push(x, y, z);
+                sizes.push(0.5 + Math.random());
+                fallSpeeds.push(0.1 + Math.random() * 0.2);
+                driftOffsets.push(Math.random() * Math.PI * 2);
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            geo.userData = { fallSpeeds: fallSpeeds, driftOffsets: driftOffsets };
+            const mat = new THREE.PointsMaterial({
+                size: 1.0, map: textures.sub, transparent: true, opacity: 0.8,
+                vertexColors: false, color: 0xFFFFFF, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function updateSnowSystem(time) {
+            const positions = groupSnow.geometry.attributes.position.array;
+            const speeds = groupSnow.geometry.userData.fallSpeeds;
+            const drifts = groupSnow.geometry.userData.driftOffsets;
+            const count = positions.length / 3;
+            for(let i=0; i<count; i++) {
+                positions[i*3+1] -= speeds[i];
+                positions[i*3] += Math.sin(time + drifts[i]) * 0.05;
+                if (positions[i*3+1] < -60) {
+                    positions[i*3+1] = 100;
+                    positions[i*3] = (Math.random() - 0.5) * 200;
+                    positions[i*3+2] = (Math.random() - 0.5) * 200;
+                }
+            }
+            groupSnow.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function createParticleSystem(type, count, baseSize) {
+            const pPositions = []; const pExplodeTargets = []; const pTreeTargets = []; const pHeartTargets = []; const sizes = []; const phases = []; 
+            const colors = new Float32Array(count * 3);
+            const coreColor = new THREE.Color(); const fadeColor = new THREE.Color();
+
+            if(type === 'main') { coreColor.setHex(0x8A2BE2); fadeColor.setHex(0x110033); } 
+            else if(type === 'sub') { coreColor.setHex(0xFFFFFF); fadeColor.setHex(0x444444); } 
+            else { coreColor.setHex(0x9370DB); fadeColor.setHex(0x000000); }
+
+            for(let i=0; i<count; i++) {
+                const progress = i / count;
+                const h = progress * CONFIG.treeHeight;
+                const y = h - CONFIG.treeHeight / 2 + CONFIG.treeYOffset;
+                let radius = CONFIG.treeBaseRadius * (1 - progress);
+                const armIndex = i % 4; 
+                const armOffset = armIndex * (Math.PI / 2); 
+                const densityCurve = Math.pow(progress, 0.5); 
+                const angle = (densityCurve * Math.PI * 2 * CONFIG.spiralLoops) + armOffset;
+                
+                const isScatter = Math.random() < 0.25;
+                let currentSpread;
+                if (isScatter) {
+                    const flareFactor = Math.pow(1.0 - progress, 3.0); 
+                    const maxSpread = 60.0; 
+                    currentSpread = 2.0 + (Math.random() * maxSpread) * flareFactor;
+                } else {
+                    currentSpread = 0.4 + Math.random() * 0.4;
+                }
+
+                const x = Math.cos(angle) * radius + (Math.random() - 0.5) * currentSpread;
+                const z = Math.sin(angle) * radius + (Math.random() - 0.5) * currentSpread;
+                const yFinal = y + (Math.random() - 0.5) * (0.5 + (isScatter ? 3.0 : 0.5)); 
+
+                pTreeTargets.push(x, yFinal, z);
+
+                const sizeMult = isScatter ? 0.8 : 1.0;
+                const distRatio = Math.pow(Math.random(), 3.5); 
+                const particleSize = baseSize * (0.1 + 0.9 * (1.0 - distRatio)) * sizeMult;
+                sizes.push(particleSize);
+
+                const finalColor = coreColor.clone().lerp(fadeColor, distRatio * 1.2); 
+                colors[i*3] = finalColor.r; colors[i*3+1] = finalColor.g; colors[i*3+2] = finalColor.b;
+
+                // --- [PHẦN ĐÃ SỬA]: PHÂN TÁN ĐỀU XUNG QUANH ---
+                // Tạo một hộp không gian rộng 600x600x600 để hạt bay lung tung
+                const spreadRange = 600; 
+                const exX = (Math.random() - 0.5) * spreadRange;
+                const exY = (Math.random() - 0.5) * spreadRange;
+                // Z rộng hơn để tạo chiều sâu (bay cả ra sau camera)
+                const exZ = (Math.random() - 0.5) * spreadRange; 
+                
+                pExplodeTargets.push(exX, exY, exZ);
+                // ----------------------------------------------
+
+                const tHeart = Math.random() * Math.PI * 2;
+                let hx = 16 * Math.pow(Math.sin(tHeart), 3);
+                let hy = 13 * Math.cos(tHeart) - 5 * Math.cos(2*tHeart) - 2 * Math.cos(3*tHeart) - Math.cos(4*tHeart);
+                const scaleIn = Math.pow(Math.random(), 0.5); 
+                hx *= scaleIn; hy *= scaleIn; let hz = (Math.random() - 0.5) * 6 * scaleIn; 
+                pHeartTargets.push(hx * 2.0, hy * 2.0 + 5, hz * 2.0); 
+
+                pPositions.push(pTreeTargets[i*3], pTreeTargets[i*3+1], pTreeTargets[i*3+2]);
+                phases.push(Math.random() * Math.PI * 2);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pPositions, 3));
+            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            geo.userData = { tree: pTreeTargets, explode: pExplodeTargets, heart: pHeartTargets, phases: phases, baseColor: coreColor, baseSize: baseSize, colorsOriginal: colors.slice() };
+            const mat = new THREE.PointsMaterial({ size: baseSize, map: textures[type], transparent: true, opacity: 1.0, vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function createPhotos() {
+            const geo = new THREE.PlaneGeometry(8, 8);
+            const borderGeo = new THREE.PlaneGeometry(8.5, 8.5); 
+            const borderMat = new THREE.MeshBasicMaterial({ color: 0xE6E6FA }); 
+            for(let i=0; i<5; i++) {
+                const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
+                const mesh = new THREE.Mesh(geo, mat);
+                const border = new THREE.Mesh(borderGeo, borderMat);
+                border.position.z = -0.05; 
+                mesh.add(border);
+                mesh.visible = false; mesh.scale.set(0,0,0);
+                scene.add(mesh);
+                photoMeshes.push(mesh);
+            }
+        }
+
+        function createDecorations() {
+            // 1. Tạo Ngôi sao trên đỉnh (Giữ nguyên)
+            const starCanvas = document.createElement('canvas');
+            starCanvas.width = 128; starCanvas.height = 128;
+            const sCtx = starCanvas.getContext('2d');
+            const cx = 64, cy = 64;
+            const grd = sCtx.createRadialGradient(cx, cy, 0, cx, cy, 60);
+            
+            grd.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
+            grd.addColorStop(0.15, 'rgba(255, 255, 255, 0.9)'); 
+            grd.addColorStop(0.4, 'rgba(200, 200, 255, 0.3)'); 
+            grd.addColorStop(0.8, 'rgba(138, 43, 226, 0.05)'); 
+            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');  
+            sCtx.fillStyle = grd; sCtx.fillRect(0,0,128,128); 
+            const starTex = new THREE.CanvasTexture(starCanvas);
+            const starMat = new THREE.MeshBasicMaterial({ 
+                map: starTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+                opacity: 0 
+            });
+            starMesh = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), starMat);
+            starMesh.position.set(0, CONFIG.treeHeight/2 + CONFIG.treeYOffset + 2, 0);
+            scene.add(starMesh);
+
+            // 2. Tạo chữ MERRY CHRISTMAS với hiệu ứng đẹp
+            const titleCanvas = document.createElement('canvas');
+            titleCanvas.width = 1400; titleCanvas.height = 400;
+            const ctx = titleCanvas.getContext('2d');
+            
+            // Vẽ nền trong suốt
+            ctx.clearRect(0, 0, titleCanvas.width, titleCanvas.height);
+
+            // === HIỆU ỨNG MERRY CHRISTMAS - TRẮNG SÁNG ===
+            // Vẽ stroke với gradient xanh lam - vàng
+            const strokeGrad = ctx.createLinearGradient(0, 0, titleCanvas.width, 0);
+            strokeGrad.addColorStop(0, '#00BFFF');
+            strokeGrad.addColorStop(0.5, '#FFD700');
+            strokeGrad.addColorStop(1, '#00BFFF');
+            
+            ctx.font = 'bold 160px "Great Vibes", cursive';
+            ctx.textAlign = 'center';
+            ctx.strokeStyle = strokeGrad;
+            ctx.lineWidth = 8;
+            ctx.strokeText("Merry Christmas", 700, 220);
+
+            // Vẽ chữ chính (trắng sáng)
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
+            ctx.shadowBlur = 50;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.fillText("Merry Christmas", 700, 220);
+
+            // Glow layer thứ 2 - sáng xanh lam
+            ctx.fillStyle = 'rgba(200, 230, 255, 0.7)';
+            ctx.shadowColor = 'rgba(100, 200, 255, 0.9)';
+            ctx.shadowBlur = 80;
+            ctx.fillText("Merry Christmas", 700, 220);
+
+            const titleTex = new THREE.CanvasTexture(titleCanvas);
+            titleTex.needsUpdate = true;
+            const titleAspectRatio = titleCanvas.width / titleCanvas.height;
+            const titleHeight = 18; 
+            const titleWidth = titleHeight * titleAspectRatio;
+            
+            const titleMat = new THREE.MeshBasicMaterial({ map: titleTex, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+            titleMesh = new THREE.Mesh(new THREE.PlaneGeometry(titleWidth, titleHeight), titleMat);
+            titleMesh.position.set(0, CONFIG.treeHeight + CONFIG.treeYOffset - 10, 0); 
+            scene.add(titleMesh);
+
+            // 3. Tạo chữ I LOVE YOU với hiệu ứng gradient đỏ sôi động
+            const loveCanvas = document.createElement('canvas');
+            loveCanvas.width = 1400; loveCanvas.height = 400;
+            const lCtx = loveCanvas.getContext('2d');
+
+            // Vẽ nền trong suốt
+            lCtx.clearRect(0, 0, loveCanvas.width, loveCanvas.height);
+
+            // === HIỆU ỨNG I LOVE YOU - GRADIENT ĐỎ SÔI ĐỘNG ===
+            // Gradient đỏ - hồng - tím
+            const redGrad = lCtx.createLinearGradient(0, 0, loveCanvas.width, 0);
+            redGrad.addColorStop(0, '#FF1744');
+            redGrad.addColorStop(0.5, '#FF69B4');
+            redGrad.addColorStop(1, '#FF1744');
+
+            // Vẽ stroke (đỏ đậm)
+            lCtx.font = 'bold 180px "Great Vibes", cursive';
+            lCtx.textAlign = 'center';
+            lCtx.strokeStyle = '#CC0000';
+            lCtx.lineWidth = 6;
+            lCtx.strokeText("Love You Hunn", 700, 240);
+
+            // Vẽ chữ chính với gradient đỏ - hồng
+            lCtx.fillStyle = redGrad;
+            lCtx.shadowColor = 'rgba(255, 69, 180, 0.9)';
+            lCtx.shadowBlur = 60;
+            lCtx.shadowOffsetX = 0;
+            lCtx.shadowOffsetY = 0;
+            lCtx.fillText("Love You Hunn", 700, 240);
+
+            // Glow layer thứ 2 - hồng sáng sinh động
+            lCtx.fillStyle = 'rgba(255, 105, 180, 0.8)';
+            lCtx.shadowColor = 'rgba(255, 20, 100, 1)';
+            lCtx.shadowBlur = 90;
+            lCtx.fillText("Love You Hunn", 700, 240);
+
+            const loveTex = new THREE.CanvasTexture(loveCanvas);
+            loveTex.needsUpdate = true;
+            const loveAspectRatio = loveCanvas.width / loveCanvas.height;
+            const loveHeight = 18;
+            const loveWidth = loveHeight * loveAspectRatio;
+
+            const loveMat = new THREE.MeshBasicMaterial({ map: loveTex, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+            loveMesh = new THREE.Mesh(new THREE.PlaneGeometry(loveWidth, loveHeight), loveMat);
+            loveMesh.position.set(0, -10 + CONFIG.treeYOffset, 20);
+            loveMesh.visible = false;
+            scene.add(loveMesh);
+        }
+
+        function updateParticleGroup(group, type, targetState, speed, handRotY, time) {
+            const positions = group.geometry.attributes.position.array;
+            const sizes = group.geometry.attributes.size.array;
+            const colors = group.geometry.attributes.color.array;
+            const originColors = group.geometry.userData.colorsOriginal;
+            const phases = group.geometry.userData.phases;
+            const baseSize = group.geometry.userData.baseSize;
+            const targetKey = (targetState === 'TREE') ? 'tree' : (targetState === 'HEART' ? 'heart' : 'explode');
+            const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey];
+
+            for(let i=0; i<positions.length; i++) {
+                positions[i] += (targets[i] - positions[i]) * speed;
+            }
+            group.geometry.attributes.position.needsUpdate = true;
+            
+            const count = positions.length / 3;
+            if (targetState === 'TREE') {
+                group.rotation.y = -time * 0.2; 
+                
+                const bottomY = -CONFIG.treeHeight/2 + CONFIG.treeYOffset;
+                const totalH = CONFIG.treeHeight;
+
+                for(let i=0; i<count; i++) {
+                    const y = positions[i*3+1];
+                    const normalizedY = (y - bottomY) / totalH;
+                    
+                    if (normalizedY <= treeRevealProgress + 0.05) { 
+                        const twinkle = Math.sin(time * 3 + phases[i] * 5);
+                        let r = originColors[i*3]; let g = originColors[i*3+1]; let b = originColors[i*3+2];
+                        const brightness = 0.8 + 0.3 * twinkle; 
+                        colors[i*3] = r * brightness; colors[i*3+1] = g * brightness; colors[i*3+2] = b * brightness;
+                        if (sizes[i] < baseSize) sizes[i] += 0.1; 
+                    } else {
+                        colors[i*3] = 0; colors[i*3+1] = 0; colors[i*3+2] = 0;
+                        sizes[i] = 0;
+                    }
+                }
+                group.geometry.attributes.color.needsUpdate = true;
+                group.geometry.attributes.size.needsUpdate = true;
+
+            } else if (targetState === 'HEART') {
+                group.rotation.y = 0;
+                const beat = 1 + Math.pow(Math.sin(time * 4), 6) * 0.15;
+                group.scale.set(beat, beat, beat);
+                for(let i=0; i<count; i++) {
+                    colors[i*3] = 0.8; colors[i*3+1] = 0.2; colors[i*3+2] = 0.6; 
+                    if (i % 2 === 0) sizes[i] = baseSize * 1.5; else sizes[i] = 0;
+                }
+                group.geometry.attributes.color.needsUpdate = true;
+                group.geometry.attributes.size.needsUpdate = true;
+            } else {
+                group.scale.set(1,1,1);
+                group.rotation.y += (handRotY - group.rotation.y) * 0.05;
+                for(let i=0; i<count; i++) {
+                    sizes[i] = baseSize;
+                    colors[i*3] = group.geometry.userData.baseColor.r; 
+                    colors[i*3+1] = group.geometry.userData.baseColor.g; 
+                    colors[i*3+2] = group.geometry.userData.baseColor.b;
+                }
+                group.geometry.attributes.size.needsUpdate = true;
+                group.geometry.attributes.color.needsUpdate = true;
+            }
+        }
+
+        function updateBaseDust(time) {
+            const positions = groupBaseDust.geometry.attributes.position.array;
+            const sizes = groupBaseDust.geometry.attributes.size.array;
+            const count = positions.length / 3;
+
+            groupBaseDust.rotation.y = -time * 0.2; 
+
+            const isVisible = treeRevealProgress > 0.05;
+
+            for(let i=0; i<count; i++) {
+                if (isVisible) {
+                    if (sizes[i] < 1.0) sizes[i] = 1.0; 
+                } else {
+                    sizes[i] = 0; 
+                }
+            }
+            groupBaseDust.geometry.attributes.size.needsUpdate = true;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+            
+            // Tốc độ hạt nền
+            const speed = 0.06;
+            const handRotY = (handX - 0.5) * 4.0;
+
+            if(auroraUniforms) auroraUniforms.time.value = time;
+            updateShootingStarSystem(time); 
+
+            if(groupMain) updateParticleGroup(groupMain, 'main', state === 'PHOTO_ZOOM' ? 'EXPLODE' : state, speed, handRotY, time);
+            if(groupSub) updateParticleGroup(groupSub, 'sub', state === 'PHOTO_ZOOM' ? 'EXPLODE' : state, speed, handRotY, time);
+            if(groupDust) updateParticleGroup(groupDust, 'dust', state === 'PHOTO_ZOOM' ? 'EXPLODE' : state, speed, handRotY, time);
+            
+            if(groupGalaxy) updateGalaxySystem(time);
+            if(groupSnow) updateSnowSystem(time);
+            if(groupBaseDust) updateBaseDust(time);
+
+            // ============================================
+            // LOGIC QUAY VÀ HIỂN THỊ ẢNH
+            // ============================================
+            
+            // Cập nhật góc quay dựa trên quán tính (Velocity)
+            galleryAngle += galleryVelocity;
+            
+            // Ma sát: Giảm dần tốc độ vẫy tay để nó không quay mãi mãi
+            galleryVelocity *= 0.95; 
+
+            // Duy trì một tốc độ quay nền cực nhẹ (Mặc định)
+            // Nếu tốc độ quá nhỏ, gán về mức thấp nhất để ảnh luôn trôi nhẹ
+            if (Math.abs(galleryVelocity) < 0.002) {
+                // 0.002 là tốc độ rất chậm (Chậm hơn cũ 1.5 lần)
+                galleryVelocity = 0.002 * (galleryVelocity > 0 ? 1 : -1); 
+            }
+
+            if (state === 'TREE') {
+                if (treeRevealProgress > 0.8) {
+                    titleMesh.visible = true;
+                    // === ANIMATION MERRY CHRISTMAS ===
+                    // Hiệu ứng 1: Dịch chuyển lên xuống nhẹ
+                    const floatY = 50 + CONFIG.treeYOffset * 0.5 + Math.sin(time * 1.5) * 3;
+                    
+                    // Hiệu ứng 2: Phóng to/thu nhỏ nhịp nhàng
+                    const pulseScale = 1.0 + Math.sin(time * 2) * 0.08;
+                    
+                    // Hiệu ứng 3: Xoay nhẹ (nhưng chủ yếu là Z)
+                    const rotateZ = Math.sin(time * 0.8) * 0.05;
+                    
+                    titleMesh.position.y = floatY;
+                    titleMesh.scale.set(pulseScale, pulseScale, 1);
+                    titleMesh.rotation.z = rotateZ;
+                    
+                    // Hiệu ứng 4: Opacity nhấp nháy nhẹ (không quá)
+                    const glow = 0.9 + Math.sin(time * 3) * 0.1;
+                    titleMesh.material.opacity = glow;
+                } else { titleMesh.visible = false; }
+                
+                if(starMesh) {
+                    starMesh.visible = true; 
+                    const sScale = 1.0 + Math.sin(time*2)*0.1;
+                    starMesh.scale.set(sScale, sScale, 1);
+                }
+                loveMesh.visible = false;
+                groupBaseDust.visible = true;
+                groupShootingStars.visible = true;
+                photoMeshes.forEach(m => { m.visible = false; m.scale.set(0,0,0); });
+
+            } else if (state === 'HEART') {
+                titleMesh.visible = false; starMesh.visible = false; 
+                loveMesh.visible = true;
+                
+                // === ANIMATION I LOVE YOU - SINH ĐỘNG ===
+                // Hiệu ứng 1: Đập tim (scaleY thay vì scale)
+                const heartBeat = 1.0 + Math.pow(Math.sin(time * 3.5), 6) * 0.25;
+                
+                // Hiệu ứng 2: Dịch chuyển nhẹ (một chút xoay vòng)
+                const loveRotate = Math.sin(time * 1.2) * 0.1;
+                
+                // Hiệu ứng 3: Phóng to/thu nhỏ overall
+                const overallScale = 1.0 + Math.sin(time * 2.2) * 0.1;
+                
+                // Hiệu ứng 4: Dịch Y lên xuống (nhảy nhẹ)
+                const jumpY = -10 + CONFIG.treeYOffset + Math.sin(time * 2.5) * 2;
+                
+                loveMesh.position.y = jumpY;
+                loveMesh.scale.set(overallScale * heartBeat, overallScale, 1);
+                loveMesh.rotation.z = loveRotate;
+                
+                // Hiệu ứng 5: Nhấp nháy opacity theo nhịp tim
+                const loveGlow = 0.85 + Math.pow(Math.sin(time * 3.5), 3) * 0.15;
+                loveMesh.material.opacity = loveGlow;
+                
+                groupBaseDust.visible = false;
+                groupShootingStars.visible = false;
+                photoMeshes.forEach(m => { m.visible = false; });
+
+            } else if (state === 'EXPLODE') {
+                titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                groupBaseDust.visible = false; groupShootingStars.visible = false;
+
+                const orbitRadius = 35; 
+                let maxZ = -999; 
+
+                photoMeshes.forEach((mesh, i) => {
+                    mesh.visible = true;
+                    // Dùng galleryAngle thay vì time để điều khiển được
+                    const angle = galleryAngle + (i * (Math.PI * 2 / photoMeshes.length));
+                    
+                    const px = Math.cos(angle) * orbitRadius;
+                    const pz = Math.sin(angle) * orbitRadius;
+                    const py = 10 + Math.sin(time * 2 + i) * 2; 
+
+                    mesh.position.lerp(new THREE.Vector3(px, py, pz), 0.1);
+                    mesh.lookAt(camera.position);
+
+                    // Kích thước khi xoay vòng: 1.3
+                    mesh.scale.lerp(new THREE.Vector3(1.3, 1.3, 1.3), 0.1);
+
+                    if (pz > maxZ) {
+                        maxZ = pz;
+                        selectedIndex = i; 
+                    }
+                });
+
+            } else if (state === 'PHOTO_ZOOM') {
+                titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                groupBaseDust.visible = false; groupShootingStars.visible = false;
+
+                photoMeshes.forEach((mesh, i) => {
+                    mesh.visible = true;
+                    if (i === selectedIndex) {
+                        mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
+                        
+                        // YÊU CẦU CỦA BẠN: Nhỏ lại 1.4 lần so với cũ
+                        // Cũ là 6.5. Mới = 6.5 / 1.4 ≈ 4.6. Mình để 4.5 cho tròn.
+                        mesh.scale.lerp(new THREE.Vector3(4, 4, 4), 0.1); 
+                        
+                        mesh.lookAt(camera.position);
+                        mesh.rotation.z = 0; 
+                    } else {
+                        mesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+                    }
+                });
+            }
+            
+            renderer.render(scene, camera);
+        }   
+
+        function startSystem() {
+            document.getElementById('btnStart').style.display = 'none';
+            bgMusic.play().catch(e => console.log(e));
+            init3D();
+
+            const video = document.getElementsByClassName('input_video')[0];
+            const canvas = document.getElementById('camera-preview');
+            const ctx = canvas.getContext('2d');
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+
+            hands.onResults(results => {
+                ctx.clearRect(0,0,canvas.width,canvas.height); 
+                ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+                
+                // 1. Logic 2 tay (Tim)
+                if (results.multiHandLandmarks.length === 2) {
+                    const h1 = results.multiHandLandmarks[0]; const h2 = results.multiHandLandmarks[1];
+                    const distIndex = Math.hypot(h1[8].x - h2[8].x, h1[8].y - h2[8].y);
+                    if (distIndex < 0.1) { state = 'HEART'; return; }
+                }
+
+                // 2. Logic 1 tay
+                if(results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    
+                    // --- LOGIC VẪY TAY XOAY ẢNH ---
+                    const currentHandX = lm[9].x;
+                    // Tính độ lệch: Tay di chuyển bao nhiêu so với khung hình trước
+                    const deltaX = currentHandX - lastHandX;
+                    
+                    // Nếu đang ở chế độ xem ảnh (EXPLODE), cử chỉ vẫy sẽ đẩy nhanh tốc độ quay
+                    if (state === 'EXPLODE' || state === 'PHOTO_ZOOM') {
+                        // Nhân với hệ số 0.1 để tạo độ nhạy vừa phải
+                        // Dấu trừ (-) để đảo chiều cho thuận mắt (Vẫy phải -> Ảnh trôi sang phải)
+                        galleryVelocity -= deltaX * 0.55; 
+                    }
+                    lastHandX = currentHandX; // Lưu vị trí cũ
+                    handX = currentHandX; 
+
+                    // --- LOGIC CHUYỂN TRẠNG THÁI ---
+                    const tips = [8,12,16,20]; const wrist = lm[0];
+                    let openDist = 0; 
+                    tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
+                    const avgDist = openDist / 4;
+                    const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+
+                    if (avgDist < 0.25) {
+                        state = 'TREE'; 
+                    } else if (pinchDist < 0.05) {
+                        state = 'PHOTO_ZOOM'; 
+                    } else {
+                        state = 'EXPLODE'; 
+                    }
+                } else {
+                    state = 'TREE'; 
+                }
+            });
+
+            const cameraUtils = new Camera(video, {
+                onFrame: async () => { await hands.send({image: video}); }, width: 320, height: 240
+            });
+            cameraUtils.start();
+        }
+
+        window.addEventListener('resize', () => {
+            if(camera) { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        });
+    </script>
+</body>
+</html>
