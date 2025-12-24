@@ -685,7 +685,7 @@
             const borderGeo = new THREE.PlaneGeometry(8.5, 8.5); 
             const borderMat = new THREE.MeshBasicMaterial({ color: 0xE6E6FA }); 
             for(let i=0; i<5; i++) {
-                const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
+                const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide, transparent: true, opacity: 1.0 });
                 const mesh = new THREE.Mesh(geo, mat);
                 const border = new THREE.Mesh(borderGeo, borderMat);
                 border.position.z = -0.05; 
@@ -1029,16 +1029,17 @@
                 photoMeshes.forEach((mesh, i) => {
                     mesh.visible = true;
                     if (i === selectedIndex) {
+                        // Ảnh được chọn: Phóng to ở giữa màn hình
                         mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
-                        
-                        // YÊU CẦU CỦA BẠN: Nhỏ lại 1.4 lần so với cũ
-                        // Cũ là 6.5. Mới = 6.5 / 1.4 ≈ 4.6. Mình để 4.5 cho tròn.
                         mesh.scale.lerp(new THREE.Vector3(4, 4, 4), 0.1); 
-                        
                         mesh.lookAt(camera.position);
-                        mesh.rotation.z = 0; 
+                        mesh.rotation.z = 0;
+                        mesh.material.opacity = 1.0;
                     } else {
-                        mesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+                        // Ảnh khác: Đẩy ra phía sau, thu nhỏ và mờ (vẫn hiển thị, không biến mất)
+                        mesh.position.lerp(new THREE.Vector3(0, 0, -150), 0.08);
+                        mesh.scale.lerp(new THREE.Vector3(0.2, 0.2, 0.2), 0.08);
+                        mesh.material.opacity = 0.15;
                     }
                 });
             }
