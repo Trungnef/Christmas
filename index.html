@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Magic Christmas - Face Control</title>
+    <title>Magic Christmas - Hunn</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -190,12 +190,12 @@
         // ==========================================
         // 1. RESOURCES CONFIG
         // ==========================================
-        const MUSIC_URL = "./Christmas.mp3"; 
+        const MUSIC_URL = "./audio/Christmas.mp3"; 
         let bgMusic = new Audio(MUSIC_URL);
         bgMusic.loop = true; bgMusic.volume = 1.0;
 
         const loader = new THREE.TextureLoader();
-        const photoFiles = ['./image1.jpg', './image2.jpg', './image3.jpg', './image4.jpg', './image5.jpg'];
+        const photoFiles = ['./images/image1.png', './images/image2.png', './images/image3.png', './images/image4.png', './images/image5.png'];
         const photoTextures = [];
         photoFiles.forEach((f, i) => photoTextures[i] = loader.load(f));
 
