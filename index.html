@@ -16,8 +16,8 @@
         #canvas-container { width: 100%; height: 100vh; display: block; }
         
         #ui-layer {
-            position: absolute; bottom: 30px; width: 100%;
-            text-align: center; pointer-events: none; z-index: 100;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 100%; text-align: center; pointer-events: none; z-index: 100;
         }
         
         .guide { 
@@ -38,18 +38,45 @@
 
         button {
             pointer-events: auto; cursor: pointer;
-            background: linear-gradient(to bottom, #9400D3, #4B0082);
-            color: #FFF; border: 1px solid #E6E6FA;
-            padding: 15px 50px; border-radius: 30px; 
-            font-weight: 700; font-size: 18px; /* Tăng cỡ chữ nút */
-            box-shadow: 0 0 30px rgba(138, 43, 226, 0.6);
-            animation: pulse 2s infinite;
+            background: linear-gradient(135deg, #FF1744 0%, #FF5252 50%, #FF1744 100%);
+            color: #FFFFFF; 
+            border: 3px solid #FFD700;
+            padding: 18px 60px; 
+            border-radius: 50px; 
+            font-weight: 900; 
+            font-size: 24px;
+            box-shadow: 0 0 40px rgba(255, 23, 68, 0.8), 0 0 80px rgba(255, 105, 180, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.3);
+            animation: christmasPulse 1.5s ease-in-out infinite;
             text-transform: uppercase;
-            letter-spacing: 2px;
-            /* Sử dụng font Quicksand đậm cho nút */
-            font-family: 'Quicksand', sans-serif; 
+            letter-spacing: 3px;
+            font-family: 'Quicksand', sans-serif;
+            transition: all 0.3s ease;
+            text-shadow: 0 0 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 215, 0, 0.8);
         }
-        @keyframes pulse { 0% { box-shadow: 0 0 20px rgba(138, 43, 226, 0.4); } 50% { box-shadow: 0 0 40px rgba(138, 43, 226, 0.8); } 100% { box-shadow: 0 0 20px rgba(138, 43, 226, 0.4); } }
+        
+        button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 60px rgba(255, 23, 68, 1), 0 0 100px rgba(255, 105, 180, 0.8), inset 0 0 30px rgba(255, 255, 255, 0.5);
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        @keyframes christmasPulse { 
+            0% { 
+                box-shadow: 0 0 40px rgba(255, 23, 68, 0.8), 0 0 80px rgba(255, 105, 180, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.3);
+                text-shadow: 0 0 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 215, 0, 0.8);
+            } 
+            50% { 
+                box-shadow: 0 0 80px rgba(255, 23, 68, 1), 0 0 120px rgba(255, 105, 180, 0.8), inset 0 0 30px rgba(255, 255, 255, 0.5);
+                text-shadow: 0 0 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 215, 0, 1);
+            } 
+            100% { 
+                box-shadow: 0 0 40px rgba(255, 23, 68, 0.8), 0 0 80px rgba(255, 105, 180, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.3);
+                text-shadow: 0 0 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(255, 215, 0, 0.8);
+            } 
+        }
 
         #camera-preview {
             position: absolute; top: 15px; right: 15px;
