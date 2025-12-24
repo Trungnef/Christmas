@@ -298,7 +298,7 @@
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 2000);
             camera.position.z = 100;
-            camera.position.y = 10;
+            camera.position.y = 5;
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -685,7 +685,12 @@
             const borderGeo = new THREE.PlaneGeometry(8.5, 8.5); 
             const borderMat = new THREE.MeshBasicMaterial({ color: 0xE6E6FA }); 
             for(let i=0; i<5; i++) {
-                const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide, transparent: true, opacity: 1.0 });
+                const mat = new THREE.MeshBasicMaterial({ 
+                    map: photoTextures[i], 
+                    side: THREE.DoubleSide,
+                    toneMapped: false,
+                    transparent: false
+                });
                 const mesh = new THREE.Mesh(geo, mat);
                 const border = new THREE.Mesh(borderGeo, borderMat);
                 border.position.z = -0.05; 
@@ -1029,17 +1034,23 @@
                 photoMeshes.forEach((mesh, i) => {
                     mesh.visible = true;
                     if (i === selectedIndex) {
-                        // Ảnh được chọn: Phóng to ở giữa màn hình
-                        mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
-                        mesh.scale.lerp(new THREE.Vector3(4, 4, 4), 0.1); 
+                        // Dịch ảnh gần camera nhưng không quá gần (tránh z-fighting)
+                        mesh.position.lerp(new THREE.Vector3(0, 0, 45), 0.08);
+                        
+                        // Scale vừa phải để hiển thị đầy đủ ảnh mà không bị cắt
+                        // Từ 4 -> 3.2 để ảnh không bị lớn quá
+                        mesh.scale.lerp(new THREE.Vector3(3.2, 3.2, 3.2), 0.08);
+                        
                         mesh.lookAt(camera.position);
                         mesh.rotation.z = 0;
-                        mesh.material.opacity = 1.0;
+                        
+                        // Tăng độ hiển thị (brightness)
+                        if (mesh.material.emissive) {
+                            mesh.material.emissive.setHex(0x333333);
+                        }
                     } else {
-                        // Ảnh khác: Đẩy ra phía sau, thu nhỏ và mờ (vẫn hiển thị, không biến mất)
-                        mesh.position.lerp(new THREE.Vector3(0, 0, -150), 0.08);
-                        mesh.scale.lerp(new THREE.Vector3(0.2, 0.2, 0.2), 0.08);
-                        mesh.material.opacity = 0.15;
+                        mesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.08);
+                        mesh.visible = false;
                     }
                 });
             }
